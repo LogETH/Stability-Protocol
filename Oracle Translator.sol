@@ -12,7 +12,7 @@
 
 pragma solidity >=0.7.0 <0.9.0;
 
-// This is a proof of concept for a stablecoin creator that supports any ERC20 token.
+// This is an oracle translator that turns a complex call into a simple "getPrice" function
 
 contract OracleTranslator {
 
