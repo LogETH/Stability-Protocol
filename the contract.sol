@@ -16,6 +16,15 @@ pragma solidity >=0.7.0 <0.9.0;
 
 contract StabilityProtocol {
 
+
+//////////////////////////                                                          /////////////////////////
+/////////////////////////                                                          //////////////////////////
+////////////////////////            Variables that this contract has:             ///////////////////////////
+///////////////////////                                                          ////////////////////////////
+//////////////////////                                                          /////////////////////////////
+
+    // Yes I know I could have used a struct but this works better in my brain
+
     mapping(uint => ERC20) MarketToken;
     mapping(uint => OracleViewer) MarketOracle;
     mapping(uint => STBTokenTemplate) Stablecoin;
@@ -33,6 +42,15 @@ contract StabilityProtocol {
     ERC20 USDC = ERC20(address(0));
     ERC20 DAI = ERC20(address(0));
 
+
+//////////////////////////                                                              /////////////////////////
+/////////////////////////                                                              //////////////////////////
+////////////////////////             Visible functions this contract has:             ///////////////////////////
+///////////////////////                                                              ////////////////////////////
+//////////////////////                                                              /////////////////////////////
+
+    // Makes a stablecoin market, all you need is the token and an oracle
+
     function CreateStablecoin(ERC20 Token, OracleViewer OracleAddress) public {
 
         STBTokenTemplate BlankTemplate = createToken();
@@ -49,15 +67,18 @@ contract StabilityProtocol {
         Nonce += 1;
     }
 
-    function createToken()
-        public
-        returns (STBTokenTemplate tokenAddress)
-    {
-        // Create a new `Token` contract and return its address.
-        // From the JavaScript side, the return type
-        // of this function is `address`, as this is
-        // the closest type available in the ABI.
-        return new STBTokenTemplate();
+    function borrowFromToken(uint MarketID, uint amount, uint mintAmount) public {
+
+        MarketToken[MarketID].transferFrom(msg.sender, address(this), amount); 
+        UserBalance[MarketID][msg.sender] += amount; 
+
+        uint aval = MarketOracle[MarketID].getPrice()*(UserBalance[MarketID][msg.sender]/10**8)-Debt[MarketID][msg.sender];
+        aval = 60*(aval/100); // For the purpose of testing, all tokens have a 60% LTV.
+
+        Debt[MarketID][msg.sender] += mintAmount;
+
+        require(aval > mintAmount, "You don't have enough collateral to mint this many tokens");
+        mint(MarketID, msg.sender, mintAmount);
     }
 
     function mintFromUSDC(uint MarketID, uint amount) public {
@@ -76,48 +97,28 @@ contract StabilityProtocol {
         mint(MarketID, msg.sender, amount);
     }
 
-    function redeemForToken(uint MarketID, uint repayAmount, uint redeemAmount) public {
+    function repayForToken(uint MarketID, uint repayAmount, uint redeemAmount) public {
 
         burn(MarketID, msg.sender, repayAmount);
         Debt[MarketID][msg.sender] -= repayAmount;
 
         uint aval = MarketOracle[MarketID].getPrice()*(UserBalance[MarketID][msg.sender]/10**8)-Debt[MarketID][msg.sender];
-
         aval = 40*(aval/100); // inverse of 60 out of 100 is 40 
 
         require(aval > redeemAmount, "Your debt is too high to make this withdraw.");
-
         MarketToken[MarketID].transfer(address(this), redeemAmount);
     }
 
     function redeemForUSDC(uint MarketID, uint amount) public {
 
         burn(MarketID, msg.sender, amount);
-
         USDC.transfer(msg.sender, amount/(10**12));
     }
 
     function redeemForDAI(uint MarketID, uint amount) public {
 
         burn(MarketID, msg.sender, amount);
-
         DAI.transfer(msg.sender, amount);
-    }
-
-    function mintFromToken(uint MarketID, uint amount, uint mintAmount) public {
-
-        MarketToken[MarketID].transferFrom(msg.sender, address(this), amount); 
-        UserBalance[MarketID][msg.sender] += amount; 
-
-        uint aval = MarketOracle[MarketID].getPrice()*(UserBalance[MarketID][msg.sender]/10**8)-Debt[MarketID][msg.sender];
-
-        aval = 60*(aval/100); // For the purpose of testing, all tokens have a 60% LTV.
-
-        Debt[MarketID][msg.sender] += mintAmount;
-
-        require(aval > mintAmount, "You don't have enough collateral to mint this many tokens");
-
-        mint(MarketID, msg.sender, mintAmount);
     }
 
     function liquidate(uint MarketID, address Victim) public {
@@ -125,21 +126,9 @@ contract StabilityProtocol {
         require(Health(MarketID, Victim) < 10**18, "This address isn't vulnerable to be liquidated");
 
         Stablecoin[MarketID].transferFrom(msg.sender, address(this), Debt[MarketID][Victim]);
-
         Debt[MarketID][Victim] = 0;
-
         MarketToken[MarketID].transfer(msg.sender, UserBalance[MarketID][Victim]);
 
-    }
-
-    function mint(uint MarketID, address Who, uint amount) internal {
-
-        Stablecoin[MarketID].mint(amount, Who);
-    }
-
-    function burn(uint MarketID, address Who, uint amount) internal {
-
-        Stablecoin[MarketID].burn(amount, Who);
     }
 
     function UpdateAllOracles() public {
@@ -165,12 +154,43 @@ contract StabilityProtocol {
         return (Debt[MarketID][Who]*(10**18))/(60*(aval/100));
     }
 
+
+//////////////////////////                                                              /////////////////////////
+/////////////////////////                                                              //////////////////////////
+////////////////////////      Internal and external functions this contract has:      ///////////////////////////
+///////////////////////                                                              ////////////////////////////
+//////////////////////                                                              /////////////////////////////
+
+    // msg.sender SHOULD NOT be used in any of the below functions
+
+    function mint(uint MarketID, address Who, uint amount) internal {
+
+        Stablecoin[MarketID].mint(amount, Who);
+    }
+
+    function burn(uint MarketID, address Who, uint amount) internal {
+
+        Stablecoin[MarketID].burn(amount, Who);
+    }
+
     function append(string memory a, string memory b) internal pure returns (string memory) {
 
         return string(abi.encodePacked(a, b));
     }
 
+    function createToken() internal returns (STBTokenTemplate tokenAddress) {
+
+        return new STBTokenTemplate();
+    }
+
 }
+
+//////////////////////////                                                              /////////////////////////
+/////////////////////////                                                              //////////////////////////
+////////////////////////      Contracts that this contract uses, contractception!     ///////////////////////////
+///////////////////////                                                              ////////////////////////////
+//////////////////////                                                              /////////////////////////////
+
 
 interface STBtoken{
     function transferFrom(address, address, uint256) external;
@@ -201,16 +221,6 @@ interface OracleViewer{
 
 
 
-
-
-
-
-
-
-
-
-
-
 ///////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -218,16 +228,6 @@ interface OracleViewer{
 
 
 ///////////////////////////////////////////////////////////////////////////////////////
-
-
-
-
-
-
-
-
-
-
 
 
 
