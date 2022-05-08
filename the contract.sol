@@ -32,7 +32,10 @@ contract StabilityProtocol {
     mapping(uint => uint) public MarketDAIdebt;
     mapping(uint => mapping(address => uint)) UserBalance;
     mapping(uint => mapping(address => uint)) Debt;
+    mapping(uint => mapping(address => uint)) TimeBorrowed;
     mapping(uint => uint) CurrentPrice;
+    mapping(uint => uint) FeeFactor;
+    mapping(uint => mapping(address => uint)) PendingFee;
     uint Nonce;
 
     address[] public contracts;
@@ -41,6 +44,8 @@ contract StabilityProtocol {
 
     ERC20 USDC = ERC20(address(0));
     ERC20 DAI = ERC20(address(0));
+
+  // FeeFactor is how much % is charged to the borrower PER BLOCK. It has 18 decimals, with 10**18 being 100% per block.
 
 
 //////////////////////////                                                              /////////////////////////
@@ -51,7 +56,7 @@ contract StabilityProtocol {
 
     // Makes a stablecoin market, all you need is the token and an oracle
 
-    function CreateStablecoin(ERC20 Token, OracleViewer OracleAddress) public {
+    function CreateStablecoin(ERC20 Token, OracleViewer OracleAddress, uint _FeeFactor) public {
 
         STBTokenTemplate BlankTemplate = createToken();
 
@@ -64,10 +69,14 @@ contract StabilityProtocol {
 
         Stablecoin[Nonce] = BlankTemplate;
 
+        FeeFactor[Nonce] = _FeeFactor;
+
         Nonce += 1;
     }
 
     function borrowFromToken(uint MarketID, uint amount, uint mintAmount) public {
+
+        RecordFee(MarketID, msg.sender);
 
         MarketToken[MarketID].transferFrom(msg.sender, address(this), amount); 
         UserBalance[MarketID][msg.sender] += amount; 
@@ -181,6 +190,37 @@ contract StabilityProtocol {
     function createToken() internal returns (STBTokenTemplate tokenAddress) {
 
         return new STBTokenTemplate();
+    }
+
+    function CalculateFee(uint MarketID, address YourAddress) internal view returns (uint256){
+        
+        uint Time = block.timestamp - TimeBorrowed[MarketID][YourAddress];
+        if(Time == block.timestamp){Time = 0;}
+
+        return Time * Debt[MarketID][YourAddress] * FeeFactor[MarketID];
+    }
+
+    function RecordFee(uint MarketID, address User) internal {
+
+        uint Unclaimed = CalculateFee(MarketID, User);
+        Debt[MarketID][User] += Unclaimed;
+        TimeBorrowed[MarketID][User] = block.timestamp;
+    }
+
+    function CalculateEmission(uint TokensPerBlockPerNFT, uint HowManyBlocks, uint decimals) public pure returns(uint) {
+
+        uint Value = TokensPerBlockPerNFT * (10**decimals);
+        TokensPerBlockPerNFT = Value/HowManyBlocks;
+        return TokensPerBlockPerNFT;
+    }
+
+    ///////////////////////////////////////////////////////////
+    //// The internal/external functions used for UI data  ////
+    ///////////////////////////////////////////////////////////
+
+    function CheckFees(uint MarketID, address YourAddress) external view returns (uint256){
+
+        return(CalculateFee(MarketID, YourAddress) + PendingFee[MarketID][YourAddress]);
     }
 
 }
