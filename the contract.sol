@@ -36,6 +36,7 @@ contract StabilityProtocol {
     mapping(uint => uint) CurrentPrice;
     mapping(uint => uint) FeeFactor;
     mapping(uint => mapping(address => uint)) PendingFee;
+    mapping(uint => uint) TotalFees;
     uint Nonce;
 
     address[] public contracts;
@@ -205,13 +206,20 @@ contract StabilityProtocol {
         uint Unclaimed = CalculateFee(MarketID, User);
         Debt[MarketID][User] += Unclaimed;
         TimeBorrowed[MarketID][User] = block.timestamp;
-    }
+
+        TotalFees[MarketID] += Unclaimed;
+     }
 
     function CalculateEmission(uint TokensPerBlockPerNFT, uint HowManyBlocks, uint decimals) public pure returns(uint) {
 
         uint Value = TokensPerBlockPerNFT * (10**decimals);
         TokensPerBlockPerNFT = Value/HowManyBlocks;
         return TokensPerBlockPerNFT;
+    }
+
+    function CalcualteAccuredFees(uint MarketID) public view returns (uint){
+
+        return TotalFees[MarketID];
     }
 
     ///////////////////////////////////////////////////////////
@@ -254,8 +262,7 @@ interface ERC20{
 }
 
 interface OracleViewer{
-
-    // Chainlink Dev Docs https://docs.chain.link/docs/
+    
     function getPrice() external view returns (uint);
 }
 
